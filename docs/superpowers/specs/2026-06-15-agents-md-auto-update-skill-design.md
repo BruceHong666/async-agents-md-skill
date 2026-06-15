@@ -1,229 +1,235 @@
-# agents.md 自动更新 Skill — 设计文档
+# agents.md Auto-Update Skill — Design Document
 
-- 日期：2026-06-15
-- 状态：Draft（待评审）
-- 仓库：`async-agents-md-skill`
-- Skill 名称（拟定）：`agents-md`
+- Date: 2026-06-15
+- Status: Draft (pending review)
+- Repository: `async-agents-md-skill`
+- Skill name (proposed): `agents-md-keeper`
 
-## 1. 背景与目标
+## 1. Background and Goals
 
-构建一个 AI skill，从 **git `fix` 提交**和 **GitLab MR 评论**中学习，自动维护项目根目录的 `agents.md`（社区标准、项目级 AI 上下文文档，类似 "robots.txt for agents"）。
+Build an AI skill that learns from **git `fix` commits** and **GitLab MR comments** to automatically maintain `agents.md` in the project root directory (the community-standard, project-level AI context document, similar to "robots.txt for agents").
 
-具体维护 `agents.md` 中的两类知识：
-- **Gotchas（踩坑 / 易错点）**：主要来自 `fix` 提交
-- **Conventions（编码约定 / 规则）**：主要来自 MR 评审评论
+Specifically, maintain two types of knowledge in `agents.md`:
+- **Gotchas**: primarily sourced from `fix` commits
+- **Conventions**: primarily sourced from MR review comments
 
-目标：把团队在 bug 修复和 code review 中积累的教训沉淀进 `agents.md`，让后续的 AI agent 不重蹈覆辙。
+Goal: capture the lessons the team accumulates through bug fixes and code reviews into `agents.md`, so subsequent AI agents don't repeat the same mistakes.
 
-## 2. 范围
+## 2. Scope
 
-**范围内：**
-- 单仓库、当前分支的增量更新
-- 从 git `fix` 提交 + GitLab MR 评论提取踩坑与约定
-- 生成"建议变更"供人工确认后写入
-- 冷启动时生成完整初始 `agents.md`
+**In scope:**
+- Incremental updates for a single repository on the current branch
+- Extracting gotchas and conventions from git `fix` commits + GitLab MR comments
+- Generating "proposed changes" to be written after human confirmation
+- Generating a complete initial `agents.md` on cold start
 
-**范围外（先不做，记录待定）：**
-- 跨分支 / 多仓库
-- fix 提交被 amend / rebase 导致的漏抓或重复
-- MR 评论中非评审性质的闲聊（靠语义提取过滤，不专门处理）
-- CI / hook 自动触发（当前为手动调用 skill）
+**Out of scope (deferred, recorded as pending):**
+- Cross-branch / multi-repo
+- Missed or duplicate capture caused by `fix` commits being amended / rebased
+- Non-review chatter in MR comments (filtered via semantic extraction, not specially handled)
+- CI / hook automatic triggering (currently the skill is invoked manually)
 
-## 3. 总体架构（两层）
+## 3. Overall Architecture (Two Layers)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  SKILL.md（编排层 / 由 Claude 执行）                       │
-│  - 判定冷启动 vs 增量                                      │
-│  - 调脚本拉数据；MR 优先 MCP、否则脚本兜底                  │
-│  - 派（单个或并行多个）分析子 agent 读缓存做语义提取          │
-│  - 去重 → 提议 → 确认 → 写 agents.md                       │
+│  SKILL.md (orchestration layer / executed by Claude)      │
+│  - Determine cold start vs incremental                    │
+│  - Invoke script to fetch data; prefer MCP for MR,       │
+│    fall back to script otherwise                          │
+│  - Dispatch (single or multiple parallel) analysis        │
+│    sub-agents to read cache and do semantic extraction    │
+│  - Dedupe -> propose -> confirm -> write agents.md        │
 └───────────────▲────────────────────────┬─────────────────┘
-                │ 结构化 JSON（缓存文件）  │ 写 agents.md（含 marker）
+                │ structured JSON (cache) │ write agents.md (with marker)
 ┌───────────────┴────────────────────────▼─────────────────┐
-│  scripts/agents_md.py（确定性数据 + 状态层，纯标准库）       │
-│  - marker 读写（嵌在 agents.md 的 HTML 注释里）            │
-│  - git fix 提交拉取（可配置 pattern，支持 diff）            │
-│  - MR 评论兜底拉取（GitLab REST API + urllib + token）     │
-│  - 缓存写入 .agents-md-cache/                              │
+│  scripts/agents_md.py (deterministic data + state layer,  │
+│  stdlib only)                                             │
+│  - marker read/write (embedded in HTML comment in         │
+│    agents.md)                                             │
+│  - git fix commit fetch (configurable pattern, diff       │
+│    supported)                                             │
+│  - MR comment fallback fetch (GitLab REST API + urllib +  │
+│    token)                                                 │
+│  - cache written to .agents-md-cache/                     │
 └──────────────────────────────────────────────────────────┘
 ```
 
-**分工原则**：脚本只做"可复现、可测试"的确定性活（状态、范围、抓取、缓存）；语义判断（算不算踩坑、和已有条目是否重复、怎么表述进文档）交给 Claude。
+**Division of labor principle**: The script only handles "reproducible, testable" deterministic work (state, scope, fetching, caching); semantic judgment (whether something counts as a gotcha, whether it duplicates an existing entry, how to phrase it in the document) is delegated to Claude.
 
-## 4. 状态 / 标记机制（marker 嵌入 agents.md）
+## 4. State / Marker Mechanism (marker embedded in agents.md)
 
-**不使用独立状态文件**，marker 以单行 HTML 注释形式嵌在 `agents.md` 末尾：
+**No standalone state file is used.** The marker is embedded as a single-line HTML comment at the end of `agents.md`:
 
 ```markdown
 <!-- agents-md-state: {"schema":1,"last_commit":"abc1234","last_mr_updated_at":"2026-06-10T12:00:00Z","updated_at":"2026-06-15T09:00:00Z"} -->
 ```
 
-**字段：**
-- `last_commit`：上次处理到的 git commit SHA
-- `last_mr_updated_at`：上次处理到的 MR `updated_at` 时间（ISO8601）
-- `updated_at`：marker 自身最后更新时间
+**Fields:**
+- `last_commit`: the git commit SHA processed up to last time
+- `last_mr_updated_at`: the MR `updated_at` time processed up to last time (ISO8601)
+- `updated_at`: the marker's own last-updated time
 
-**特性与保证：**
-- **随文档共享**：marker 跟着 `agents.md` 的正常 commit 进入仓库，全团队自动共享同一个增量起点，无需额外的状态文件，也不引入合并冲突密集的 sidecar。
-- **确认后才推进**：写入流程是"确认 → 写内容区块 → 调 `state advance` 更新 marker 注释"，两步**都发生在用户确认之后**、且都只动 `agents.md`。因此拒绝提议时两步都不执行，marker 不推进，相关 commit/MR 下次仍会被处理。
-- **单点真相**：marker 的格式与读写完全由脚本 `state` 子命令负责，skill 不直接拼这行注释。
-- **缺失兜底**：若 `agents.md` 存在但 marker 注释缺失（被手工删除等），脚本回退为"以上次修改 agents.md 的提交为起点"并给出 warning。
+**Properties and guarantees:**
+- **Shared with the document**: The marker enters the repository along with normal commits to `agents.md`, so the whole team automatically shares the same incremental starting point. No extra state file is needed, and it avoids introducing a sidecar that would cause frequent merge conflicts.
+- **Advance only after confirmation**: The write flow is "confirm -> write content block -> invoke `state advance` to update the marker comment". Both steps happen **after user confirmation** and only touch `agents.md`. Therefore, if a proposal is rejected, neither step executes, the marker does not advance, and the relevant commit/MR will be processed again next time.
+- **Single source of truth**: The format and read/write of the marker are handled entirely by the script's `state` subcommand; the skill never assembles this comment line directly.
+- **Missing marker fallback**: If `agents.md` exists but the marker comment is missing (e.g. manually deleted), the script falls back to "treat the commit that last modified agents.md as the starting point" and emits a warning.
 
-## 5. 数据模式（standard / deep）
+## 5. Data Modes (standard / deep)
 
-调用 skill 时可选模式，默认 `standard`：
+When invoking the skill you may choose a mode; default is `standard`:
 
-| 模式 | 抓取内容 | 适用 |
+| Mode | Fetched content | Use case |
 |---|---|---|
-| `standard`（默认） | commit 标题 + body + MR 评论原文 | 日常、轻量、省 token |
-| `deep` | 额外抓取每条 fix 提交的 diff | 需要从"改了什么"提炼具体踩坑时 |
+| `standard` (default) | commit title + body + raw MR comments | Day-to-day, lightweight, token-saving |
+| `deep` | additionally fetches the diff of each fix commit | When you need to distill specific gotchas from "what changed" |
 
-两种模式都先**缓存成文件**再分析（见第 8 节）。
+Both modes **cache to file first** before analysis (see Section 8).
 
-## 6. 数据流
+## 6. Data Flow
 
-### A. 冷启动（bootstrap）—— `agents.md` 不存在
-1. 读 `README.md` + 目录结构 + 最近 N 条提交（N 可配置，默认全部）
-2. 生成完整 `agents.md`（结构见第 9 节），marker 的 `last_commit` 设为当前 HEAD
-3. 不进入增量分析
+### A. Cold start (bootstrap) — `agents.md` does not exist
+1. Read `README.md` + directory structure + the most recent N commits (N configurable, default all)
+2. Generate a complete `agents.md` (structure in Section 9); set the marker's `last_commit` to the current HEAD
+3. Do not enter incremental analysis
 
-### B. 增量—— `agents.md` 已存在
-1. 脚本读 marker，按 `last_commit` 拉取范围内的 `fix` 提交（`last_commit..HEAD`），按 pattern 过滤
-2. MR：skill 先试 GitLab MCP（按 `last_mr_updated_at` 过滤更新过的 MR）；MCP 不可用 → 调脚本 `mr gather` 用 token 兜底
-3. 抓取结果写入 `.agents-md-cache/`
-4. 派分析子 agent（单个或并行多个）读缓存，提取 gotchas + conventions（第 8 节）
-5. 去重对比已有 `agents.md` → 提议 → 确认 → 写入 → 推进 marker（第 10 节）
+### B. Incremental — `agents.md` already exists
+1. The script reads the marker and fetches `fix` commits within range (`last_commit..HEAD`) filtered by pattern
+2. MR: the skill first tries the GitLab MCP (filtering MRs updated since `last_mr_updated_at`); if MCP is unavailable -> invoke the script `mr gather` using a token as fallback
+3. Fetch results are written to `.agents-md-cache/`
+4. Dispatch analysis sub-agent(s) (single or multiple parallel) to read the cache and extract gotchas + conventions (Section 8)
+5. Dedupe against existing `agents.md` -> propose -> confirm -> write -> advance marker (Section 10)
 
-## 7. MR 来源策略
+## 7. MR Source Strategy
 
-**优先 GitLab MCP，脚本兜底：**
-1. skill 探测 GitLab MCP 是否可用（尝试调用一次列表 MR 的能力，成功即视为可用）
-2. 可用 → 通过 MCP 拉取自 `last_mr_updated_at` 起更新过的 MR 及其评论；记录抓到的最新 `updated_at`
-3. 不可用 → 调 `python scripts/agents_md.py mr gather --via api`，脚本用环境变量里的 token（默认 `GITLAB_TOKEN`）+ urllib 调 GitLab REST API
-4. 两者都不可用 → 跳过 MR，仅基于 git 提交更新（给出提示）
+**Prefer the GitLab MCP, with the script as fallback:**
+1. The skill probes whether the GitLab MCP is available (attempt one list-MR capability call; success means available)
+2. Available -> fetch via MCP the MRs updated since `last_mr_updated_at` and their comments; record the latest `updated_at` seen
+3. Unavailable -> invoke `python scripts/agents_md.py mr gather --via api`; the script uses the token from the environment variable (default `GITLAB_TOKEN`) + urllib to call the GitLab REST API
+4. Both unavailable -> skip MR, update based on git commits only (with a notice)
 
-GitLab 实例地址默认从 git remote 自动推断，可配置覆盖。
+The GitLab instance URL is auto-inferred from the git remote by default and can be overridden via configuration.
 
-## 8. 分析流水线（缓存 → 单 agent → 合并）
+## 8. Analysis Pipeline (cache -> sub-agent -> merge)
 
-**为什么缓存成文件再分析**：把 gather（大量原始 git/MR 输出）与 analyze 的上下文分离——分析子 agent 拿到的是干净、紧凑的缓存文件，不被原始命令输出污染，提取质量更稳。
+**Why cache to file before analysis**: Separate the gather phase (large volumes of raw git/MR output) from the analyze phase's context — the analysis sub-agent receives clean, compact cache files, uncontaminated by raw command output, yielding more stable extraction quality.
 
-**缓存文件**（位于 `.agents-md-cache/`，gitignored，每次运行覆盖、保留到下次便于调试）：
-- `commits.json`：`[{sha, message, body, files?, diff?}]`（`diff` 仅 deep 模式）
-- `mrs.json`：`[{iid, title, updated_at, comments: [...]}]`
+**Cache files** (located in `.agents-md-cache/`, gitignored, overwritten each run and retained until the next run for easy debugging):
+- `commits.json`: `[{sha, message, body, files?, diff?}]` (`diff` only in deep mode)
+- `mrs.json`: `[{iid, title, updated_at, comments: [...]}]`
 
-**执行方式：并行多子 agent + 合并（本期实现）**
-- 当缓存条目数 ≤ `batch_size`（默认 10）时，skill 派**单个**分析子 agent 读完即分析
-- 当条目数 > `batch_size` 时，按每 `batch_size` 条切批，**并行**派多个分析子 agent（`Agent` / `Task` 工具，general-purpose，遵循 `dispatching-parallel-agents` 模式）；每个 agent 只读自己那批、独立提取 gotchas / conventions，返回结构化 JSON
-- **合并去重**：全部批次返回后，主流程合并所有候选，先做**跨批次去重**（不同批次可能提炼出相似条目），再与已有 `agents.md` 做语义去重（第 10 节）
-- 并发上限遵循 `dispatching-parallel-agents` 指引，避免一次派太多
-- `analysis_mode` 可配置：`parallel`（默认）/ `sequential`（环境受限或想省 token 时退回顺序单 agent）
+**Execution: parallel multi-sub-agent + merge (implemented this iteration)**
+- When the number of cache entries is <= `batch_size` (default 10), the skill dispatches a **single** analysis sub-agent that reads and analyzes everything
+- When entries > `batch_size`, split into batches of `batch_size` each and dispatch **multiple parallel** analysis sub-agents (the `Agent` / `Task` tool, general-purpose, following the `dispatching-parallel-agents` pattern); each agent reads only its own batch, independently extracts gotchas / conventions, and returns structured JSON
+- **Merge and dedupe**: After all batches return, the main flow merges all candidates, first doing **cross-batch deduplication** (different batches may distill similar entries), then semantic deduplication against the existing `agents.md` (Section 10)
+- Concurrency limit follows the `dispatching-parallel-agents` guidance to avoid dispatching too many at once
+- `analysis_mode` is configurable: `parallel` (default) / `sequential` (fall back to sequential single-agent when the environment is constrained or you want to save tokens)
 
-## 9. agents.md 结构模板
+## 9. agents.md Structure Template
 
 ```markdown
 # Agents
 
-> 本文件由 agents-md skill 维护，记录项目上下文供 AI agent 使用。
-> 标记为「skill 维护」的章节由 skill 自动更新；其余章节请手工维护。
+> This file is maintained by the agents-md-keeper skill and records project context for AI agents.
+> Sections marked "skill-maintained" are auto-updated by the skill; maintain other sections by hand.
 
 ## Overview
-<冷启动生成；之后基本不动>
+<generated on cold start; rarely touched afterwards>
 
 ## Build & Test
-<构建 / 测试 / lint 命令>
+<build / test / lint commands>
 
 ## Code Layout
-<关键目录与模块职责>
+<key directories and module responsibilities>
 
-## Conventions        <!-- skill 维护：编码约定 / 规则 -->
+## Conventions        <!-- skill-maintained: coding conventions / rules -->
 - ...
 
-## Gotchas            <!-- skill 维护：踩坑 / 易错点 -->
+## Gotchas            <!-- skill-maintained: gotchas / pitfalls -->
 - ...
 
 <!-- agents-md-state: {...} -->
 ```
 
-- skill **只写** `Conventions` 和 `Gotchas` 两节；用 HTML 注释界定区块边界，便于精确替换、不触碰手写内容
-- 其余章节冷启动生成后由用户维护
-- **语言**：首次生成默认**英文**；之后跟随已有 `agents.md` 的主导语言
-- 文件名默认 `agents.md`（小写，社区标准），可配置
+- The skill **only writes** the `Conventions` and `Gotchas` sections; HTML comments delimit the block boundaries for precise replacement without touching hand-written content
+- Other sections are maintained by the user after cold-start generation
+- **Language**: first generation defaults to **English**; afterwards it follows the dominant language of the existing `agents.md`
+- The file name defaults to `agents.md` (lowercase, community standard) and is configurable
 
-## 10. 提议 → 确认 → 写入流程
+## 10. Propose -> Confirm -> Write Flow
 
-1. 分析子 agent 返回候选条目（每条带：来源 commit SHA / MR iid、归类 gotcha/convention、一句话描述）
-2. skill 将候选与已有 `Conventions`/`Gotchas` 做**语义去重**：
-   - 全新条目 → 标"新增"
-   - 与已有条目高度相似 → 标"疑似重复"，交用户裁决，不自动合并
-   - 对已有条目的补充/修正 → 标"修改"
-3. skill 产出**建议清单**（每条注明来源、归类、动作、与现有条目的相似度）
-4. 用户逐条勾选或全选确认
-5. 确认后，skill 写入 `agents.md` 的 `Conventions`/`Gotchas` 区块
-6. 随即调 `state advance` 更新末尾 marker（新 `last_commit` = 当前 HEAD，新 `last_mr_updated_at` = 本次抓到的最新 MR 时间）。两步都在确认之后执行，故拒绝即不推进
+1. Analysis sub-agents return candidate entries (each carrying: source commit SHA / MR iid, classification gotcha/convention, one-line description)
+2. The skill performs **semantic deduplication** of candidates against existing `Conventions`/`Gotchas`:
+   - Brand-new entry -> mark "new"
+   - Highly similar to an existing entry -> mark "likely duplicate" and let the user decide; do not auto-merge
+   - Supplement / correction to an existing entry -> mark "modify"
+3. The skill produces a **proposal list** (each item notes source, classification, action, and similarity to existing entries)
+4. The user confirms item by item or selects all
+5. After confirmation, the skill writes into the `Conventions`/`Gotchas` blocks of `agents.md`
+6. It then immediately invokes `state advance` to update the trailing marker (new `last_commit` = current HEAD, new `last_mr_updated_at` = the latest MR time fetched this run). Both steps execute after confirmation, so rejection means no advance
 
-## 11. Python 脚本接口（`scripts/agents_md.py`）
+## 11. Python Script Interface (`scripts/agents_md.py`)
 
-纯标准库实现（`urllib`、`json`、`subprocess` 调 `git`、`argparse`），零安装。
+Implemented with the standard library only (`urllib`, `json`, `subprocess` to call `git`, `argparse`), zero install.
 
 ```
 state show   [--file agents.md]
-    打印当前 marker；缺失则打印 MISSING 并以"上次改 agents.md 的提交"回退
+    Print the current marker; if missing, print MISSING and fall back to "the commit that last modified agents.md"
 
 git gather   [--pattern fix] [--mode standard|deep] [--file agents.md] [--out .agents-md-cache/commits.json]
-    读 marker，输出 last_commit..HEAD 内匹配 pattern 的提交 JSON；deep 模式含 diff
+    Read the marker and output JSON of commits matching pattern within last_commit..HEAD; deep mode includes diff
 
 mr gather    --via api [--since <ts>] [--out .agents-md-cache/mrs.json]
-    token 兜底：拉取 since 起更新过的 MR 评论 JSON
+    Token fallback: fetch JSON of MR comments updated since <ts>
 
 state advance --commit <sha> [--mr <ts>] [--file agents.md]
-    更新/插入 agents.md 末尾的 marker 注释（仅在写入内容后调用）
+    Update/insert the marker comment at the end of agents.md (call only after writing content)
 ```
 
-所有输出为结构化 JSON，便于 Claude 解析。退出码：0 成功；非 0 附带可读错误信息。
+All output is structured JSON for easy parsing by Claude. Exit codes: 0 success; non-zero accompanied by a human-readable error message.
 
-## 12. 配置项
+## 12. Configuration
 
-| 项 | 默认 | 说明 |
+| Item | Default | Description |
 |---|---|---|
 | `mode` | `standard` | `standard` / `deep` |
-| `pattern` | `fix` | fix 提交匹配模式（git log `--grep` 的正则） |
-| `lookback` | `--all` | 冷启动回看多少提交（可限 N 条） |
-| `language` | `en` | 首次生成语言；之后跟随已有文档 |
-| `target_file` | `agents.md` | 目标文件名 |
-| `gitlab_token_env` | `GITLAB_TOKEN` | 兜底拉 MR 的 token 环境变量名 |
-| `gitlab_url` | 自动推断 | GitLab 实例地址 |
-| `batch_size` | `10` | 大缓存分批分析的批次大小 |
-| `analysis_mode` | `parallel` | `parallel`（多批并行）/ `sequential`（顺序单 agent） |
-| `cache_dir` | `.agents-md-cache/` | 缓存目录（gitignored） |
+| `pattern` | `fix` | fix-commit match pattern (regex for git log `--grep`) |
+| `lookback` | `--all` | How many commits to look back on cold start (can be limited to N) |
+| `language` | `en` | Language for first generation; afterwards follows the existing document |
+| `target_file` | `agents.md` | Target file name |
+| `gitlab_token_env` | `GITLAB_TOKEN` | Token environment variable name for MR fallback fetch |
+| `gitlab_url` | auto-inferred | GitLab instance URL |
+| `batch_size` | `10` | Batch size for batched analysis of large caches |
+| `analysis_mode` | `parallel` | `parallel` (multi-batch parallel) / `sequential` (sequential single-agent) |
+| `cache_dir` | `.agents-md-cache/` | Cache directory (gitignored) |
 
-## 13. 仓库文件布局
+## 13. Repository File Layout
 
 ```
 async-agents-md-skill/
 ├── README.md
 ├── LICENSE
-├── SKILL.md                      # skill 指令（编排层）
+├── SKILL.md                      # skill instructions (orchestration layer)
 ├── scripts/
-│   └── agents_md.py              # 确定性数据 + 状态层
-├── .gitignore                    # 忽略 .agents-md-cache/
+│   └── agents_md.py              # deterministic data + state layer
+├── .gitignore                    # ignores .agents-md-cache/
 └── docs/superpowers/specs/
-    └── 2026-06-15-agents-md-auto-update-skill-design.md   # 本文档
+    └── 2026-06-15-agents-md-auto-update-skill-design.md   # this document
 ```
 
-安装时 `SKILL.md` + `scripts/` 复制到 `~/.claude/skills/agents-md/`。
+On install, `SKILL.md` + `scripts/` are copied to `~/.claude/skills/agents-md/`.
 
-## 14. 边界与限制
+## 14. Boundaries and Limitations
 
-- fix 提交被 amend / rebase 掉 → 可能漏抓或重复（YAGNI，先不处理）
-- 仅支持单仓库当前分支
-- MR 非评审闲聊靠语义过滤，不专门清洗
-- 手工删掉 marker 注释 → 走第 4 节的缺失兜底
-- marker 嵌入文档意味着它必须随 `agents.md` 一起提交才能团队共享；若本地未提交，则仅为本地进度
+- `fix` commits amended / rebased away -> may be missed or captured twice (YAGNI, not handled for now)
+- Only supports a single repository on the current branch
+- Non-review chatter in MRs is filtered semantically, not specially cleaned
+- Manually deleting the marker comment -> falls back per the missing-marker fallback in Section 4
+- Embedding the marker in the document means it must be committed along with `agents.md` to be shared across the team; if not committed locally, it only reflects local progress
 
-## 15. 后续可选增强（不在本期）
+## 15. Possible Future Enhancements (not in this iteration)
 
-- `.agents-md.state.json` sidecar 模式（替代嵌入注释）
-- CI / pre-push hook 自动触发
-- 跨分支聚合
+- `.agents-md.state.json` sidecar mode (as an alternative to embedded comments)
+- CI / pre-push hook automatic triggering
+- Cross-branch aggregation
