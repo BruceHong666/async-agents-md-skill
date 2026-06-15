@@ -1,0 +1,9 @@
+[project]
+name = "agents-md-skill"
+version = "0.1.0"
+description = "Skill that learns from git fix commits and MR comments to update agents.md"
+requires-python = ">=3.8"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

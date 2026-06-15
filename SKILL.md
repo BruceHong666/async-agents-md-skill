@@ -1,0 +1,135 @@
+---
+name: agents-md
+description: Update the project's agents.md by learning from recent `fix` commits and merge-request review comments — extracting gotchas and coding conventions, deduping them against the existing doc, and proposing changes for the user to approve. Use this whenever the user wants to update agents.md, refresh or maintain the project's AI context doc, capture lessons learned from recent fixes, distill conventions out of MR/code-review comments, maintain the Gotchas/Conventions sections, or onboard a newly added AI agent with up-to-date project notes. Trigger this skill even when the user never literally says "agents.md" but expresses any of those intents (for example "capture what we learned from last week's fixes", "refresh the AI context", "distill our review conventions", "prepare project notes for the new agent").
+---
+
+# agents.md updater
+
+You maintain the project's `agents.md` — the community-standard, project-level AI
+context document. You extract **gotchas** (mostly from `fix` commits) and **coding
+conventions** (mostly from MR review comments), dedup them against what is already in
+the doc, and propose changes for the user to approve.
+
+Why this division of labor matters: deterministic work (parsing markers, gathering
+commits/MRs, writing cache files, rendering the marker) is done by a stdlib-only script
+so it is reproducible and testable; semantic judgment (is this actually a gotcha? does it
+duplicate an existing bullet? how should it be phrased?) stays with you. Keep those
+roles separate — never hand-edit the marker line by hand, and never let the script make
+semantic calls.
+
+Two sections are skill-maintained: `## Conventions` and `## Gotchas`. Everything else
+(`## Overview`, `## Build & Test`, `## Code Layout`) is user-owned after cold start — you
+generate it once, then leave it alone. An HTML-comment marker at the end of `agents.md`
+records incremental progress. It advances **only after the user accepts proposed
+changes**, so a rejected proposal leaves the marker untouched and the same commits/MRs get
+reconsidered next time.
+
+## Setup
+
+The data/state layer is `scripts/agents_md.py` (Python 3 stdlib only, zero installs).
+Invoke it from the repo root, e.g. `python scripts/agents_md.py <subcommand>`. Cache files
+are written under `.agents-md-cache/` (gitignored; overwritten each run, kept around for
+debugging).
+
+## Configuration
+
+Parse `$ARGUMENTS` as `key=value` tokens. Defaults:
+
+- `mode`: `standard` (default) — commit title + body + MR comments. `deep` also reads each
+  fix commit's diff, which costs tokens but yields sharper gotchas when the fix matters
+  more than the message.
+- `pattern`: regex for fix commits, default `^fix` (passed to `git log --grep -E`).
+- `language`: first-run language, default `en`. On later runs you follow the existing
+  doc's dominant language instead (see "Output language").
+- `target`: file name, default `agents.md`.
+- `batch_size`: items per analysis batch, default `10`.
+- `analysis_mode`: `parallel` (default) | `sequential` (fall back to sequential single-agent
+  when the environment limits concurrency or you want to save tokens).
+
+## Procedure
+
+### 1. Decide cold-start vs incremental
+
+- If `target` does NOT exist → go to **Bootstrap**.
+- If it exists → go to **Incremental**.
+
+### 2. Bootstrap (cold start)
+
+You have no marker to build on, so synthesize a full doc from what the repo already tells
+you, then stamp the current HEAD as the starting point.
+
+1. Run:
+   `python scripts/agents_md.py bootstrap gather --repo . --out .agents-md-cache/bootstrap.json`
+2. Read `.agents-md-cache/bootstrap.json` (README text + top-level dirs + recent commits).
+3. Compose a full `agents.md` in the configured `language` using this structure:
+   - `# Agents` + a one-line purpose note
+   - `## Overview`
+   - `## Build & Test` — infer from the README and common files (package manifests, CI
+     configs, Makefile). Only leave a TODO if a command is genuinely undiscoverable.
+   - `## Code Layout` — key directories and module responsibilities from the top-level tree.
+   - `## Conventions` — start empty (or with obvious items)
+   - `## Gotchas` — start empty
+4. Write the file WITHOUT the marker, then advance the marker onto it:
+   `python scripts/agents_md.py state advance --file agents.md --commit $(git rev-parse HEAD)`
+5. Show the user the generated file. Done — cold start does not run the proposal step.
+
+### 3. Incremental
+
+This is the steady-state flow: gather → analyze → dedup → propose → confirm → write →
+advance marker. Order matters, because the marker should only move forward once content is
+actually written.
+
+1. **Gather git data.** The script reads the marker, resolves a `since` commit, and emits
+   matching commits in `last_commit..HEAD`:
+   `python scripts/agents_md.py git gather --file agents.md --pattern <pattern> --mode <mode> --out .agents-md-cache/commits.json`
+   Note the `head` SHA printed on stdout — you will need it when advancing the marker.
+2. **Gather MR data.** Prefer the GitLab MCP when it is available (probe it once by listing
+   MRs updated after the marker's `last_mr_updated_at`, then fetch their non-system
+   comments) — MCP gives richer, already-authenticated data without a local token. If the
+   MCP is not available, fall back to the script, which infers the GitLab instance from the
+   git remote and uses a token from the environment:
+   `python scripts/agents_md.py mr gather --via api --repo . --out .agents-md-cache/mrs.json`
+   Note the `last_mr_updated_at` printed on stdout. If neither source is available, skip MR
+   (proceed on git data only) and tell the user.
+3. **Analyze the cache.** Dispatch analysis subagents — one per `batch_size` chunk of items,
+   parallel by default following `dispatching-parallel-agents` (or a single sequential
+   agent if `analysis_mode=sequential`). Splitting into batches keeps each subagent's
+   context small and focused on clean cache files rather than raw git/MR output. Each
+   subagent reads its chunk from `.agents-md-cache/commits.json` and `.agents-md-cache/mrs.json`
+   and returns JSON: `{"gotchas": ["..."], "conventions": ["..."]}`, with every item tagged
+   by source (commit sha / MR iid). If total items ≤ `batch_size`, one subagent is enough.
+4. **Merge + dedup.** Combine all subagents' outputs, remove cross-batch duplicates first
+   (different batches often surface the same lesson), then compare each candidate against
+   the existing `## Conventions` and `## Gotchas` bullets:
+   - novel → action `add`
+   - near-duplicate of an existing bullet → action `duplicate` (do not auto-merge; surface
+     it to the user instead — they may want to keep both or rewrite)
+   - refines/corrects an existing bullet → action `modify`
+5. **Propose.** Present a checklist to the user — each row: action, target section,
+   one-line content, source, similarity-to-existing. Let the user select rows.
+6. **Apply** only the accepted rows: edit the `## Conventions` / `## Gotchas` blocks in
+   `agents.md`, respecting the HTML-comment block boundaries. Never touch other sections —
+   they are user-owned.
+7. **Advance the marker** (only after writing):
+   `python scripts/agents_md.py state advance --file agents.md --commit <head> --mr <last_mr_updated_at>`
+   (omit `--mr` if MR was skipped). Because advance runs only after the user accepts, a
+   rejected proposal leaves the marker untouched so the same commits/MRs are seen next time.
+
+## Output language
+
+First run uses the configured `language` (default `en`). On every subsequent run, detect
+the dominant language of the existing `agents.md` and match it, so the doc stays internally
+consistent rather than mixing languages.
+
+## Constraints
+
+These exist for good reasons, not as bureaucracy:
+
+- Never edit sections other than `## Conventions` and `## Gotchas` — the user owns the rest,
+  and silently rewriting their prose breaks trust in the tool.
+- Never advance the marker before the user accepts changes — advancing early would silently
+  skip commits/MRs that were never actually written down, defeating the point of incremental
+  capture.
+- If the marker comment is missing from an existing `agents.md`, the script falls back to
+  "last commit touching agents.md" — warn the user when this happens, since the fallback may
+  over- or under-count the window.
