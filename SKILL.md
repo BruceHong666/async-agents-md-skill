@@ -40,8 +40,9 @@ Parse `$ARGUMENTS` as `key=value` tokens. Defaults:
   fix commit's diff, which costs tokens but yields sharper gotchas when the fix matters
   more than the message.
 - `pattern`: regex for fix commits, default `^fix` (passed to `git log --grep -E`).
-- `language`: first-run language, default `en`. On later runs you follow the existing
-  doc's dominant language instead (see "Output language").
+- `language`: the **written/save** language for cold start, default `en`. On later runs
+  the written language follows the existing doc's dominant language instead. This does
+  NOT control your conversation or proposal-preview language — see "Output language".
 - `target`: file name, default `agents.md`.
 - `batch_size`: items per analysis batch, default `10`.
 - `analysis_mode`: `parallel` (default) | `sequential` (fall back to sequential single-agent
@@ -126,9 +127,19 @@ actually written.
 
 ## Output language
 
-First run uses the configured `language` (default `en`). On every subsequent run, detect
-the dominant language of the existing `agents.md` and match it, so the doc stays internally
-consistent rather than mixing languages.
+Two different languages — keep them distinct:
+
+- **Conversation & proposal-preview language**: reply and present proposed changes in the
+  language the user is using in this conversation (e.g. write the preview in Chinese when
+  the user speaks Chinese). Whatever the user reads before approving — the proposal
+  checklist, the diff, your explanations — follows their conversation language.
+- **Written/save language** (what actually goes into `agents.md`): match the existing doc's
+  dominant language, so the file stays internally consistent rather than mixing languages.
+  On cold start (no existing doc) use the `language` config, default `en`.
+
+When the two differ, translate the accepted items into the doc's language at write time:
+the preview the user approved was in their language, the saved content is in the doc's
+language.
 
 ## Constraints
 
