@@ -1,4 +1,4 @@
-# agents-md-keeper
+# agents-md
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -8,7 +8,7 @@
 
 ## Why it's useful
 
-Every bug fix and every code-review thread hides a hard-won lesson. If those lessons live only in commit history and MR comments, the next AI agent walks the same minefield again. `agents-md-keeper` distills those lessons out of `fix` commits and review comments, dedups them against what is already in `agents.md`, and proposes concrete edits for a human to approve.
+Every bug fix and every code-review thread hides a hard-won lesson. If those lessons live only in commit history and MR comments, the next AI agent walks the same minefield again. `agents-md` distills those lessons out of `fix` commits and review comments, dedups them against what is already in `agents.md`, and proposes concrete edits for a human to approve.
 
 Progress is tracked with an embedded marker, so each commit/MR is processed exactly once across runs — never re-hashed, never silently dropped.
 
@@ -52,8 +52,8 @@ Two clean layers, on purpose. Deterministic work stays in a reproducible script;
 Copy `SKILL.md` and the `scripts/` directory into your Claude skills folder:
 
 ```bash
-mkdir -p ~/.claude/skills/agents-md-keeper \
-  && cp SKILL.md scripts/agents_md.py ~/.claude/skills/agents-md-keeper/
+mkdir -p ~/.claude/skills/agents-md \
+  && cp SKILL.md scripts/agents_md.py ~/.claude/skills/agents-md/
 ```
 
 > Note: keep the same directory layout so `SKILL.md` can find `scripts/agents_md.py` from the repo root.

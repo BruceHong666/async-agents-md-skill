@@ -3,7 +3,7 @@
 - Date: 2026-06-15
 - Status: Draft (pending review)
 - Repository: `async-agents-md-skill`
-- Skill name (proposed): `agents-md-keeper`
+- Skill name (proposed): `agents-md`
 
 ## 1. Background and Goals
 
@@ -131,7 +131,7 @@ The GitLab instance URL is auto-inferred from the git remote by default and can 
 ```markdown
 # Agents
 
-> This file is maintained by the agents-md-keeper skill and records project context for AI agents.
+> This file is maintained by the agents-md skill and records project context for AI agents.
 > Sections marked "skill-maintained" are auto-updated by the skill; maintain other sections by hand.
 
 ## Overview
