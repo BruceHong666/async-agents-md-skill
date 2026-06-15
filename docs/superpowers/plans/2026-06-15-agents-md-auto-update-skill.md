@@ -50,7 +50,7 @@
 
 ```toml
 [project]
-name = "agents-md-skill"
+name = "async-agents-md-skill"
 version = "0.1.0"
 description = "Skill that learns from git fix commits and MR comments to update agents.md"
 requires-python = ">=3.8"
@@ -1080,7 +1080,7 @@ git add -A && git commit -m "chore: full test pass" || echo "nothing to commit"
 
 ```markdown
 ---
-name: agents-md
+name: async-agents-md
 description: Learn from git fix commits and GitLab MR comments, then propose updates to the project's agents.md (Gotchas + Conventions). Use when the user wants to update agents.md, refresh project context for AI agents, or capture lessons learned from recent fixes and merge request reviews.
 ---
 

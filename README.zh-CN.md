@@ -1,4 +1,4 @@
-# agents-md
+# async-agents-md
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -8,7 +8,7 @@
 
 ## 为什么有用
 
-每一次 bug 修复、每一轮 code review，背后都藏着一条来之不易的经验。如果这些经验只停留在提交历史和 MR 评论里，下一个 AI agent 还会踩同样的坑。`agents-md` 把这些经验从 `fix` 提交和 review 评论里提炼出来，与 `agents.md` 已有内容去重，再把具体的修改建议交给人工确认。
+每一次 bug 修复、每一轮 code review，背后都藏着一条来之不易的经验。如果这些经验只停留在提交历史和 MR 评论里，下一个 AI agent 还会踩同样的坑。`async-agents-md` 把这些经验从 `fix` 提交和 review 评论里提炼出来，与 `agents.md` 已有内容去重，再把具体的修改建议交给人工确认。
 
 进度由一个内嵌的 marker 追踪，所以每个提交/MR 在多次运行中只会被处理一次——不会重复处理，也不会被悄悄丢弃。
 
@@ -52,8 +52,8 @@
 把 `SKILL.md` 和 `scripts/` 目录复制到你的 Claude skills 目录：
 
 ```bash
-mkdir -p ~/.claude/skills/agents-md \
-  && cp SKILL.md scripts/agents_md.py ~/.claude/skills/agents-md/
+mkdir -p ~/.claude/skills/async-agents-md \
+  && cp SKILL.md scripts/agents_md.py ~/.claude/skills/async-agents-md/
 ```
 
 > 注意：保持相同的目录结构，以便 `SKILL.md` 能从仓库根目录找到 `scripts/agents_md.py`。

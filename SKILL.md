@@ -1,5 +1,5 @@
 ---
-name: agents-md
+name: async-agents-md
 description: Update the project's agents.md by learning from recent `fix` commits and merge-request review comments — extracting gotchas and coding conventions, deduping them against the existing doc, and proposing changes for the user to approve. Use this whenever the user wants to update agents.md, refresh or maintain the project's AI context doc, capture lessons learned from recent fixes, distill conventions out of MR/code-review comments, maintain the Gotchas/Conventions sections, or onboard a newly added AI agent with up-to-date project notes. Trigger this skill even when the user never literally says "agents.md" but expresses any of those intents (for example "capture what we learned from last week's fixes", "refresh the AI context", "distill our review conventions", "prepare project notes for the new agent").
 ---
 

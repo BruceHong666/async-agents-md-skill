@@ -3,7 +3,7 @@
 - Date: 2026-06-15
 - Status: Draft (pending review)
 - Repository: `async-agents-md-skill`
-- Skill name (proposed): `agents-md`
+- Skill name (proposed): `async-agents-md`
 
 ## 1. Background and Goals
 
@@ -131,7 +131,7 @@ The GitLab instance URL is auto-inferred from the git remote by default and can 
 ```markdown
 # Agents
 
-> This file is maintained by the agents-md skill and records project context for AI agents.
+> This file is maintained by the async-agents-md skill and records project context for AI agents.
 > Sections marked "skill-maintained" are auto-updated by the skill; maintain other sections by hand.
 
 ## Overview
@@ -218,7 +218,7 @@ async-agents-md-skill/
     └── 2026-06-15-agents-md-auto-update-skill-design.md   # this document
 ```
 
-On install, `SKILL.md` + `scripts/` are copied to `~/.claude/skills/agents-md/`.
+On install, `SKILL.md` + `scripts/` are copied to `~/.claude/skills/async-agents-md/`.
 
 ## 14. Boundaries and Limitations
 
