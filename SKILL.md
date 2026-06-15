@@ -19,10 +19,11 @@ semantic calls.
 
 Two sections are skill-maintained: `## Conventions` and `## Gotchas`. Everything else
 (`## Overview`, `## Build & Test`, `## Code Layout`) is user-owned after cold start — you
-generate it once, then leave it alone. An HTML-comment marker at the end of `agents.md`
-records incremental progress. It advances **only after the user accepts proposed
-changes**, so a rejected proposal leaves the marker untouched and the same commits/MRs get
-reconsidered next time.
+generate it once, then leave it alone. If you are updating an existing doc that predates
+this skill and lacks these two sections, create them on the first incremental run (see
+"Apply"). An HTML-comment marker at the end of `agents.md` records incremental progress.
+It advances **only after the user accepts proposed changes**, so a rejected proposal
+leaves the marker untouched and the same commits/MRs get reconsidered next time.
 
 ## Setup
 
@@ -107,9 +108,17 @@ actually written.
    - refines/corrects an existing bullet → action `modify`
 5. **Propose.** Present a checklist to the user — each row: action, target section,
    one-line content, source, similarity-to-existing. Let the user select rows.
-6. **Apply** only the accepted rows: edit the `## Conventions` / `## Gotchas` blocks in
-   `agents.md`, respecting the HTML-comment block boundaries. Never touch other sections —
-   they are user-owned.
+6. **Apply** only the accepted rows into `## Conventions` / `## Gotchas`.
+   **Locate these sections first.** They may use a different heading level or be in the
+   doc's own language (e.g. `### Gotchas`, `## 陷阱`, `## 编码规范`), or may not exist at all
+   if the doc predates this skill. Rules:
+   - If a section exists (any heading level or language equivalent), append accepted rows
+     inside it, preserving its existing heading and list style.
+   - If it does not exist, create it. Match the doc's dominant heading level and language;
+     place new sections near the end of the doc (just before the marker comment if one is
+     present, otherwise at the very end), and tell the user you added them.
+   - Leave all other content untouched — only the two skill-owned sections (pre-existing or
+     newly added) are edited. Silently rewriting the user's prose breaks trust in the tool.
 7. **Advance the marker** (only after writing):
    `python scripts/agents_md.py state advance --file agents.md --commit <head> --mr <last_mr_updated_at>`
    (omit `--mr` if MR was skipped). Because advance runs only after the user accepts, a
@@ -125,8 +134,10 @@ consistent rather than mixing languages.
 
 These exist for good reasons, not as bureaucracy:
 
-- Never edit sections other than `## Conventions` and `## Gotchas` — the user owns the rest,
-  and silently rewriting their prose breaks trust in the tool.
+- Only edit within `## Conventions` and `## Gotchas` — the user owns every other section,
+  and silently rewriting their prose breaks trust in the tool. If these two sections don't
+  exist yet (the doc predates this skill), creating them is the only structural change
+  allowed.
 - Never advance the marker before the user accepts changes — advancing early would silently
   skip commits/MRs that were never actually written down, defeating the point of incremental
   capture.

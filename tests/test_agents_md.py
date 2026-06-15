@@ -287,6 +287,19 @@ def test_state_advance_cli(tmp_path):
     assert parse_marker(f.read_text())["last_commit"] == "abc"
 
 
+def test_state_show_fallback_uses_repo(repo, capsys):
+    # agents.md exists but has no marker -> fallback to last commit touching it,
+    # resolved against --repo (not cwd), so it works when run from another dir.
+    sha1 = repo("feat: init", {"agents.md": "# A\n"})
+    repo("fix: later", {"src/a.py": "1\n"})  # does not touch agents.md
+    rc = main(["state", "show", "--file", str(repo.dir / "agents.md"),
+               "--repo", str(repo.dir)])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["marker"] is None
+    assert out["fallback_since"] == sha1
+
+
 from agents_md import bootstrap_gather
 
 

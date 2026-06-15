@@ -258,7 +258,7 @@ def _cmd_mr_gather(args):
 def _cmd_state_show(args):
     state = read_marker_file(args.file)
     if state is None:
-        fallback = last_commit_touching(args.file, ".") if Path(args.file).exists() else None
+        fallback = last_commit_touching(args.file, args.repo) if Path(args.file).exists() else None
         print(json.dumps({"marker": None, "fallback_since": fallback,
                           "note": "no marker; using last commit touching file"}))
     else:
@@ -312,6 +312,7 @@ def build_parser():
     st_sub = st.add_subparsers(dest="state_cmd", required=True)
     ss = st_sub.add_parser("show")
     ss.add_argument("--file", default="agents.md")
+    ss.add_argument("--repo", default=".")
     ss.set_defaults(func=_cmd_state_show)
     sa = st_sub.add_parser("advance")
     sa.add_argument("--file", default="agents.md")
