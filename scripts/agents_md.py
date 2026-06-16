@@ -84,10 +84,19 @@ def _git_show(repo, sha, fmt):
     return _git(repo, "show", "--no-patch", f"--format={fmt}", sha)
 
 
-def gather_git_commits(since, pattern, mode, repo):
-    rng = f"{since}..HEAD" if since else "HEAD"
-    out = _git(repo, "log", "--no-patch", f"--grep={pattern}", "-i", "-E",
-               "--format=%H", rng)
+def gather_git_commits(since, pattern, mode, repo, max_commits=100):
+    if since:
+        rng = f"{since}..HEAD"
+        log_args = ["log", "--no-patch", f"--grep={pattern}", "-i", "-E",
+                    "--format=%H", rng]
+    else:
+        rng = "HEAD"
+        log_args = ["log", "--no-patch", f"--grep={pattern}", "-i", "-E",
+                    "--format=%H"]
+        if max_commits and max_commits > 0:
+            log_args.append(f"-n{max_commits}")
+        log_args.append(rng)
+    out = _git(repo, *log_args)
     shas = [s for s in out.splitlines() if s.strip()]
     commits = []
     for sha in shas:
@@ -224,10 +233,15 @@ def bootstrap_gather(repo, limit=50):
 
 def _cmd_git_gather(args):
     since = resolve_since(args.file, args.repo)
-    commits, head = gather_git_commits(since, args.pattern, args.mode, args.repo)
+    commits, head = gather_git_commits(since, args.pattern, args.mode, args.repo,
+                                       max_commits=args.max_commits)
     payload = {"since": since, "commits": commits}
     write_json(args.out, payload)
-    print(json.dumps({"head": head, "count": len(commits), "cache": args.out}))
+    result = {"head": head, "count": len(commits), "cache": args.out}
+    if since is None and args.max_commits and args.max_commits > 0:
+        result["note"] = (f"no marker; capped to most recent {args.max_commits} "
+                          f"matching commits (set --max-commits 0 for full history)")
+    print(json.dumps(result))
     return 0
 
 
@@ -296,6 +310,7 @@ def build_parser():
     gg.add_argument("--file", default="agents.md")
     gg.add_argument("--repo", default=".")
     gg.add_argument("--out", default=".agents-md-cache/commits.json")
+    gg.add_argument("--max-commits", type=int, default=100)
     gg.set_defaults(func=_cmd_git_gather)
 
     mr = sub.add_parser("mr", help="GitLab MR data source")

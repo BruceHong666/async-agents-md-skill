@@ -27,10 +27,18 @@ leaves the marker untouched and the same commits/MRs get reconsidered next time.
 
 ## Setup
 
-The data/state layer is `scripts/agents_md.py` (Python 3 stdlib only, zero installs).
-Invoke it from the repo root, e.g. `python scripts/agents_md.py <subcommand>`. Cache files
-are written under `.agents-md-cache/` (gitignored; overwritten each run, kept around for
-debugging).
+The data/state layer is `scripts/agents_md.py` (Python 3 stdlib only, zero installs). It
+ships inside **this skill's directory**, not the target repo — so locate it before running:
+
+- Call it by its skill-directory path, e.g.
+  `python ~/.claude/skills/async-agents-md/scripts/agents_md.py <subcommand>`.
+- Or copy it into the target repo once if you want it tracked:
+  `cp <skill-dir>/scripts/agents_md.py scripts/agents_md.py`, then call
+  `python scripts/agents_md.py <subcommand>` from the repo root.
+
+Every `agents_md.py ...` command below means whichever path you resolved above. Cache files
+are written under `.agents-md-cache/` in the target repo (gitignored; overwritten each run,
+kept for debugging).
 
 ## Configuration
 
@@ -47,6 +55,10 @@ Parse `$ARGUMENTS` as `key=value` tokens. Defaults:
 - `batch_size`: items per analysis batch, default `10`.
 - `analysis_mode`: `parallel` (default) | `sequential` (fall back to sequential single-agent
   when the environment limits concurrency or you want to save tokens).
+- `max_commits`: when there is no marker (first run, or marker missing), cap the scan to the
+  most recent N matching commits — default `100` — so you don't scan the entire history.
+  `0` means unlimited. Older history is skipped by design (the skill prioritizes recent
+  lessons). Ignored when a marker exists, since the incremental window is already bounded.
 
 ## Procedure
 
@@ -83,8 +95,10 @@ actually written.
 
 1. **Gather git data.** The script reads the marker, resolves a `since` commit, and emits
    matching commits in `last_commit..HEAD`:
-   `python scripts/agents_md.py git gather --file agents.md --pattern <pattern> --mode <mode> --out .agents-md-cache/commits.json`
-   Note the `head` SHA printed on stdout — you will need it when advancing the marker.
+   `python scripts/agents_md.py git gather --file agents.md --pattern <pattern> --mode <mode> --max-commits <max_commits> --out .agents-md-cache/commits.json`
+   Note the `head` SHA printed on stdout — you will need it when advancing the marker. If the
+   output includes `"note": "no marker; capped to ..."`, tell the user older history was
+   skipped and offer `--max-commits 0` for a one-time full scan.
 2. **Gather MR data.** Prefer the GitLab MCP when it is available (probe it once by listing
    MRs updated after the marker's `last_mr_updated_at`, then fetch their non-system
    comments) — MCP gives richer, already-authenticated data without a local token. If the
@@ -93,24 +107,41 @@ actually written.
    `python scripts/agents_md.py mr gather --via api --repo . --out .agents-md-cache/mrs.json`
    Note the `last_mr_updated_at` printed on stdout. If neither source is available, skip MR
    (proceed on git data only) and tell the user.
-3. **Analyze the cache.** Dispatch analysis subagents — one per `batch_size` chunk of items,
-   parallel by default following `dispatching-parallel-agents` (or a single sequential
-   agent if `analysis_mode=sequential`). Splitting into batches keeps each subagent's
-   context small and focused on clean cache files rather than raw git/MR output. Each
-   subagent reads its chunk from `.agents-md-cache/commits.json` and `.agents-md-cache/mrs.json`
-   and returns JSON: `{"gotchas": ["..."], "conventions": ["..."]}`, with every item tagged
-   by source (commit sha / MR iid). If total items ≤ `batch_size`, one subagent is enough.
-4. **Merge + dedup.** Combine all subagents' outputs, remove cross-batch duplicates first
-   (different batches often surface the same lesson), then compare each candidate against
-   the existing `## Conventions` and `## Gotchas` bullets:
-   - novel → action `add`
-   - near-duplicate of an existing bullet → action `duplicate` (do not auto-merge; surface
-     it to the user instead — they may want to keep both or rewrite)
-   - refines/corrects an existing bullet → action `modify`
-5. **Propose.** Present a checklist to the user — each row: action, target section,
-   one-line content, source, similarity-to-existing. Let the user select rows.
+3. **Analyze the cache.** First read the existing `## Conventions` and `## Gotchas` bullets
+   from `agents.md` — dedup needs them in view, not just in memory — and pass them to each
+   analysis subagent along with its cache chunk. Dispatch subagents — one per `batch_size`
+   chunk, parallel by default following `dispatching-parallel-agents` (or a single sequential
+   agent if `analysis_mode=sequential`, or if total items ≤ `batch_size`). Each subagent
+   reads its chunk from `.agents-md-cache/commits.json` and `.agents-md-cache/mrs.json` and
+   returns JSON:
+   `{"gotchas": [{"content": "...", "scope": "project|general", "source": "<sha/iid>", "similar_to": "..."}], "conventions": [ ...same shape... ]}`
+   - `scope`: `general` = reusable on any project (e.g. "SSE needs heartbeat + flushHeaders");
+     `project` = specific to this codebase (e.g. "this repo's DB URL is hardcoded"). Tagging
+     it lets the user keep general rules and drop project-specific noise.
+   - `similar_to`: compare every item against the existing bullets you passed in. Fill it
+     with the first ~12 words of the existing bullet it restates — even loosely (a
+     "fullWidth" finding echoes a "no native elements" rule) — and leave it empty only if
+     genuinely novel. This structural anchor catches duplicates that pure semantic
+     guesswork misses.
+4. **Merge + dedup.** Combine all subagents' outputs; remove cross-batch duplicates first
+   (different batches often surface the same lesson). Then classify each item by its
+   `similar_to` field against the existing `## Conventions` / `## Gotchas` bullets:
+   - `similar_to` empty → action `add`
+   - `similar_to` set → action `duplicate` (do not auto-merge; surface it to the user — they
+     may want to keep both, rewrite, or drop)
+   - restates and also corrects an existing bullet → action `modify`
+5. **Propose.** Present a checklist (in the user's conversation language) — each row:
+   action (`add`/`duplicate`/`modify`), target section, `scope` (`general`/`project`),
+   one-line content, source, and `similar_to` (the existing bullet it echoes, when set).
+   Sort or group by `scope` so general rules are easy to spot. Rows with `similar_to` set
+   default to `duplicate` and are pre-flagged for the user to keep / merge / drop. Let the
+   user select.
 6. **Apply** only the accepted rows into `## Conventions` / `## Gotchas`.
-   **Locate these sections first.** They may use a different heading level or be in the
+   **Translate at write time first.** The preview was in the user's conversation language,
+   but the saved doc uses its own language (see "Output language"). Translate each accepted
+   item into the doc's language before writing — this is an explicit step so the translation
+   is never forgotten or done inconsistently.
+   **Then locate the target sections.** They may use a different heading level or be in the
    doc's own language (e.g. `### Gotchas`, `## 陷阱`, `## 编码规范`), or may not exist at all
    if the doc predates this skill. Rules:
    - If a section exists (any heading level or language equivalent), append accepted rows

@@ -110,6 +110,31 @@ def test_gather_no_since_returns_all_matching(repo):
     assert len(commits) == 1
 
 
+def test_gather_no_since_caps_to_max_commits(repo):
+    repo("feat: init", {"a.py": "0\n"})
+    repo("fix: one", {"a.py": "1\n"})
+    repo("fix: two", {"a.py": "2\n"})
+    repo("fix: three", {"a.py": "3\n"})
+    repo("fix: four", {"a.py": "4\n"})
+    repo("fix: five", {"a.py": "5\n"})
+    commits, _ = gather_git_commits(None, "^fix", "standard", repo.dir, max_commits=3)
+    assert len(commits) == 3
+    messages = [c["message"] for c in commits]
+    # newest first: five, four, three
+    assert messages == ["fix: five", "fix: four", "fix: three"]
+
+
+def test_gather_no_since_max_commits_zero_unlimited(repo):
+    repo("feat: init", {"a.py": "0\n"})
+    repo("fix: one", {"a.py": "1\n"})
+    repo("fix: two", {"a.py": "2\n"})
+    repo("fix: three", {"a.py": "3\n"})
+    repo("fix: four", {"a.py": "4\n"})
+    repo("fix: five", {"a.py": "5\n"})
+    commits, _ = gather_git_commits(None, "^fix", "standard", repo.dir, max_commits=0)
+    assert len(commits) == 5
+
+
 from agents_md import write_json, main
 
 
