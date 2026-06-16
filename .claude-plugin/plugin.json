@@ -1,0 +1,20 @@
+{
+  "name": "async-agents-md",
+  "version": "0.1.0",
+  "description": "Learn from git fix commits and MR review comments to incrementally maintain your project's agents.md (Gotchas + Conventions).",
+  "author": {
+    "name": "BruceHong"
+  },
+  "homepage": "https://github.com/BruceHong666/async-agents-md-skill",
+  "repository": "https://github.com/BruceHong666/async-agents-md-skill",
+  "license": "MIT",
+  "keywords": [
+    "agents-md",
+    "git",
+    "code-review",
+    "documentation",
+    "conventions",
+    "gotchas"
+  ],
+  "skills": "./"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "brucehong-skills",
+  "owner": {
+    "name": "BruceHong"
+  },
+  "description": "BruceHong's Claude Code skills.",
+  "plugins": [
+    {
+      "name": "async-agents-md",
+      "source": ".",
+      "description": "Incrementally maintain agents.md from fix commits and MR review comments.",
+      "version": "0.1.0",
+      "category": "developer-tools",
+      "keywords": [
+        "agents-md",
+        "git",
+        "code-review",
+        "documentation"
+      ]
+    }
+  ]
+}

@@ -49,6 +49,19 @@
 
 ## 安装
 
+### 方式 A —— Plugin marketplace（推荐）
+
+本仓库同时是一个 Claude Code 插件 + 市场，可直接安装：
+
+```
+/plugin marketplace add BruceHong666/async-agents-md-skill
+/plugin install async-agents-md@brucehong-skills
+```
+
+装好后可在任意项目里用自然语言触发（例如「update agents.md from recent fixes」）。后续用 `/plugin update` 升级。
+
+### 方式 B —— 手动复制
+
 把 `SKILL.md` 和 `scripts/` 目录复制到你的 Claude skills 目录：
 
 ```bash

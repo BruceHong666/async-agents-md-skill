@@ -49,6 +49,19 @@ Two clean layers, on purpose. Deterministic work stays in a reproducible script;
 
 ## Install
 
+### Option A — Plugin marketplace (recommended)
+
+This repo is also a Claude Code plugin + marketplace. Install it directly:
+
+```
+/plugin marketplace add BruceHong666/async-agents-md-skill
+/plugin install async-agents-md@brucehong-skills
+```
+
+Then trigger it from any project via natural language (e.g. *"update agents.md from recent fixes"*). Upgrade later with `/plugin update`.
+
+### Option B — Manual copy
+
 Copy `SKILL.md` and the `scripts/` directory into your Claude skills folder:
 
 ```bash
